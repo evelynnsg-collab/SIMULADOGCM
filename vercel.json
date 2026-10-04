@@ -1,16 +1,5 @@
 {
-  "framework": null,
-  "buildCommand": null,
-  "outputDirectory": ".",
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
-    }
-  ]
+ "version":2,
+ "builds":[{"src":"api/index.js","use":"@vercel/node","config":{"includeFiles":["private/**","server/schema.sql"]}}],
+ "routes":[{"src":"/(.*)","dest":"/api/index.js"}]
 }

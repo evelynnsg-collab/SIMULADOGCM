@@ -15,6 +15,7 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  function browser(){const jar={};return async(path,body,override={})=>{const res=await fetch(origin+path,{method:body?'POST':'GET',redirect:'manual',headers:{origin,'content-type':'application/json',cookie:Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '),...override},...(body?{body:JSON.stringify(body)}:{})});for(const c of res.headers.getSetCookie()){const [k,v]=c.split(';')[0].split('=');jar[k]=v;}return res;};}
  const admin=browser(),a=browser(),b=browser();
  assert.equal((await a('/questions.js')).status,303);
+ assert.equal((await a('/human-rights.js')).status,303);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'wrong'})).status,401);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'test-password'})).status,200);
  assert.equal((await admin('/api/admin/keys',{name:'Aluno'},{origin:'https://evil.invalid'})).status,403);
@@ -23,6 +24,7 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  const first=await Promise.all([a('/api/login',{key}),b('/api/login',{key})]);assert.deepEqual(first.map(r=>r.status).sort(),[200,403]);
  const good=first[0].status===200?a:b,bad=first[0].status===200?b:a;
  assert.equal((await good('/questions.js')).status,200);
+ const material=await good('/human-rights.js');assert.equal(material.status,200);assert.match(await material.text(),/const HUMAN_RIGHTS/);
  assert.equal((await good('/api/admin/keys')).status,403);
  assert.equal((await good('/admin.js')).status,403);
  assert.equal((await good('/admin.html')).status,404);

@@ -4,7 +4,7 @@ const {digest,token,equal,passwordValid}=require('./security');
 const validToken=v=>typeof v==='string' && /^[A-Za-z0-9_-]{43}$/.test(v);
 const ROOT=path.join(__dirname,'..','private');
 const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'};
-const allowed=new Set(['index.html','app.js','questions.js','material.js','human-rights.js','style.css','favicon.svg','account.js','admin.js','access.css']);
+const allowed=new Set(['index.html','app.js','questions.js','material.js','human-rights.js','computing.js','style.css','favicon.svg','account.js','admin.js','access.css']);
 function fail(status,message){const e=new Error(message);e.status=status;throw e;}
 function makeHandler(getDb,config=process.env){
  const secure=config.NODE_ENV!=='test';

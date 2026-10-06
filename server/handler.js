@@ -3,7 +3,7 @@ const path=require('node:path');
 const {digest,token,equal,passwordValid}=require('./security');
 const validToken=v=>typeof v==='string' && /^[A-Za-z0-9_-]{43}$/.test(v);
 const ROOT=path.join(__dirname,'..','private');
-const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'};
+const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json; charset=utf-8'};
 const allowed=new Set(['index.html','app.js','questions.js','material.js','human-rights.js','computing.js','style.css','favicon.svg','account.js','admin.js','access.css']);
 function fail(status,message){const e=new Error(message);e.status=status;throw e;}
 function makeHandler(getDb,config=process.env){
@@ -35,6 +35,18 @@ function makeHandler(getDb,config=process.env){
     if(!body || Array.isArray(body) || typeof body!=='object')fail(400,'Solicitação inválida.');
    }
    const file=async name=>{res.statusCode=200;res.setHeader('Content-Type',MIME[path.extname(name)]||'text/plain');res.end(req.method==='HEAD'?undefined:await fs.readFile(path.join(ROOT,name)));};
+   // Only installation metadata and icons are public; study content remains authenticated.
+   if(['/manifest.webmanifest','/install.js','/sw.js'].includes(pathname)){
+    if(!['GET','HEAD'].includes(req.method))return send(405,{error:'Método não permitido.'});
+    if(pathname==='/sw.js')res.setHeader('Service-Worker-Allowed','/');
+    return file(pathname.slice(1));
+   }
+   if(['/icon-180.png','/icon-192.png','/icon-512.png'].includes(pathname)){
+    if(!['GET','HEAD'].includes(req.method))return send(405,{error:'Método não permitido.'});
+    const icons=JSON.parse(await fs.readFile(path.join(ROOT,'pwa-icons.json'),'utf8'));
+    res.statusCode=200;res.setHeader('Content-Type','image/png');
+    res.end(req.method==='HEAD'?undefined:Buffer.from(icons[pathname],'base64'));return;
+   }
    if(pathname==='/login' || pathname==='/login.js' || pathname==='/access.css'){
     if(req.method==='POST')return send(405,{error:'Método não permitido.'});
     return file(pathname==='/login'?'login.html':pathname.slice(1));

@@ -17,6 +17,8 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  assert.equal((await a('/questions.js')).status,303);
  assert.equal((await a('/human-rights.js')).status,303);
  assert.equal((await a('/computing.js')).status,303);
+ assert.equal((await a('/portuguese.js')).status,303);
+ assert.equal((await a('/portuguese/machado.webp')).status,303);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'wrong'})).status,401);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'test-password'})).status,200);
  assert.equal((await admin('/api/admin/keys',{name:'Aluno'},{origin:'https://evil.invalid'})).status,403);
@@ -28,6 +30,12 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  const proof=initial.deviceProof;assert.match(proof,/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
  assert.equal((await good('/questions.js')).status,200);
  assert.equal((await good('/computing.js')).status,200);
+ const cookiesBeforeMaterial={...good.jar};
+ const portuguese=await good('/portuguese.js');assert.equal(portuguese.status,200);assert.match(await portuguese.text(),/const PORTUGUESE_MATERIAL/);
+ const illustration=await good('/portuguese/machado.webp');assert.equal(illustration.status,200);assert.equal(illustration.headers.get('content-type'),'image/webp');
+ assert.equal(Buffer.from(await illustration.arrayBuffer()).subarray(8,12).toString(),'WEBP');
+ assert.deepEqual(good.jar,cookiesBeforeMaterial);
+ assert.equal((await good('/api/me')).status,200);
  const material=await good('/human-rights.js');assert.equal(material.status,200);assert.match(await material.text(),/const HUMAN_RIGHTS/);
  assert.equal((await good('/api/admin/keys')).status,403);
  assert.equal((await good('/admin.js')).status,403);

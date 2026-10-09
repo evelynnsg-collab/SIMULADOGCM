@@ -15,4 +15,14 @@ async function passwordValid(password,encoded) {
  const key=await scrypt(password,parts[1],64,{N:32768,r:8,p:1,maxmem:64*1024*1024});
  return crypto.timingSafeEqual(key,Buffer.from(parts[2],'hex'));
 }
-module.exports={digest,token,equal,passwordHash,passwordValid};
+// Backup of the device identity, scoped to one access key. It cannot log in alone.
+function deviceProof(device,keyHash,secret){
+ const signature=crypto.createHmac('sha256',secret).update(`gcm-device-v1:${keyHash}:${device}`).digest('base64url');
+ return `${device}.${signature}`;
+}
+function restoreDevice(proof,keyHash,secret){
+ if(typeof proof!=='string' || !/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/.test(proof))return null;
+ const device=proof.split('.')[0];
+ return equal(proof,deviceProof(device,keyHash,secret))?device:null;
+}
+module.exports={digest,token,equal,passwordHash,passwordValid,deviceProof,restoreDevice};

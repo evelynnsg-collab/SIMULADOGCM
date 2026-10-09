@@ -1,6 +1,6 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const {digest,token,equal,passwordValid}=require('./security');
+const {digest,token,equal,passwordValid,deviceProof,restoreDevice}=require('./security');
 const validToken=v=>typeof v==='string' && /^[A-Za-z0-9_-]{43}$/.test(v);
 const ROOT=path.join(__dirname,'..','private');
 const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json; charset=utf-8'};
@@ -61,9 +61,15 @@ function makeHandler(getDb,config=process.env){
    const adminVersion=digest(config.ADMIN_PASSWORD_HASH);
    async function session(){
     if(!device || !validToken(cookies[cookieName]))return null;
-    const r=await db.query(`SELECT s.*,k.name,k.blocked,k.device_hash AS bound_device FROM gcm_sessions s LEFT JOIN gcm_keys k ON k.id=s.key_id WHERE s.token_hash=$1 AND s.device_hash=$2 AND s.expires_at>NOW()`,[digest(cookies[cookieName]),digest(device)]);
+    const r=await db.query(`SELECT s.*,k.name,k.blocked,k.key_hash AS access_key_hash,k.device_hash AS bound_device FROM gcm_sessions s LEFT JOIN gcm_keys k ON k.id=s.key_id WHERE s.token_hash=$1 AND s.device_hash=$2 AND s.expires_at>NOW()`,[digest(cookies[cookieName]),digest(device)]);
     const s=r.rows[0];
     if(!s || (s.role==='student' && (s.blocked || s.bound_device!==s.device_hash)) || (s.role==='admin' && s.admin_version!==adminVersion))return null;
+    // Active students keep their session; logout, blocking and replacement still revoke it.
+    if(s.role==='student' && new Date(s.expires_at).getTime()-Date.now()<86400000 && pathname!=='/api/logout'){
+     const renewed=await db.query(`UPDATE gcm_sessions SET expires_at=NOW()+INTERVAL '7 days' WHERE token_hash=$1 AND expires_at>NOW() RETURNING token_hash`,[s.token_hash]);
+     if(!renewed.rows.length)return null;
+     res.setHeader('Set-Cookie',[cookie(cookieName,cookies[cookieName],604800),cookie(deviceName,device,31536000)]);
+    }
     return s;
    }
    async function issue(role,keyId){
@@ -85,19 +91,21 @@ function makeHandler(getDb,config=process.env){
     const accessKey=typeof body.key==='string'?body.key.trim():'';
     if(!/^GCM-[A-Za-z0-9_-]{43}$/.test(accessKey)) fail(401,'Chave inválida ou bloqueada.');
     await limit('key:'+digest(accessKey),30);
+    // A signed local backup restores only this key's original browser identity.
+    device=restoreDevice(body.deviceProof,digest(accessKey),config.ADMIN_PASSWORD_HASH)||device;
     device=device||token();
     // Atomic UPDATE: two first-time devices cannot both claim this key.
     const r=await db.query(`UPDATE gcm_keys SET device_hash=$2, device_label=COALESCE(device_label,$3),last_login=NOW() WHERE key_hash=$1 AND blocked=FALSE AND (device_hash IS NULL OR device_hash=$2) RETURNING id`,[digest(accessKey),digest(device),String(req.headers['user-agent']||'Navegador').slice(0,220)]);
-    if(!r.rows.length)fail(403,'Chave inválida, bloqueada ou vinculada a outro navegador. Fale com a administradora.');
+    if(!r.rows.length)fail(403,'Chave inválida, bloqueada ou vinculada a outro navegador. Use o navegador do primeiro acesso. Se os dados foram apagados, peça à administradora para restaurar o acesso mantendo a mesma chave.');
     await issue('student',r.rows[0].id);
-    return send(200,{redirect:'/'});
+    return send(200,{redirect:'/',deviceProof:deviceProof(device,digest(accessKey),config.ADMIN_PASSWORD_HASH)});
    }
    const who=await session();
    if(!who){
     if(pathname.startsWith('/api/'))return send(401,{error:'Entre para continuar.'});
     res.statusCode=303;res.setHeader('Location','/login');return res.end();
    }
-   if(pathname==='/api/me' && req.method==='GET')return send(200,{role:who.role,name:who.role==='admin'?config.ADMIN_USERNAME:who.name});
+   if(pathname==='/api/me' && req.method==='GET')return send(200,{role:who.role,name:who.role==='admin'?config.ADMIN_USERNAME:who.name,...(who.role==='student'?{deviceProof:deviceProof(device,who.access_key_hash,config.ADMIN_PASSWORD_HASH)}:{})});
    if(pathname==='/api/logout' && req.method==='POST'){
     await db.query('DELETE FROM gcm_sessions WHERE token_hash=$1',[who.token_hash]);
     res.setHeader('Set-Cookie',cookie(cookieName,'',0));return send(200,{ok:true});
@@ -116,7 +124,7 @@ function makeHandler(getDb,config=process.env){
      return send(201,{id,key});
     }
     if(pathname==='/api/admin/action' && req.method==='POST'){
-     if(!validToken(body.id) || !['block','unblock','replace'].includes(body.action))fail(400,'Ação inválida.');
+     if(!validToken(body.id) || !['block','unblock','replace','restore'].includes(body.action))fail(400,'Ação inválida.');
      const key=body.action==='replace'?'GCM-'+token():null;
      // One transaction also invalidates any outstanding sessions.
      const client=await db.connect();
@@ -124,6 +132,7 @@ function makeHandler(getDb,config=process.env){
       await client.query('BEGIN');
       let r;
       if(key)r=await client.query('UPDATE gcm_keys SET key_hash=$2,key_hint=$3,device_hash=NULL,device_label=NULL,blocked=FALSE WHERE id=$1 RETURNING id',[body.id,digest(key),key.slice(-6)]);
+      else if(body.action==='restore')r=await client.query('UPDATE gcm_keys SET device_hash=NULL,device_label=NULL WHERE id=$1 RETURNING id',[body.id]);
       else r=await client.query('UPDATE gcm_keys SET blocked=$2 WHERE id=$1 RETURNING id',[body.id,body.action==='block']);
       if(!r.rows.length)fail(404,'Acesso não encontrado.');
       await client.query('DELETE FROM gcm_sessions WHERE key_id=$1',[body.id]);

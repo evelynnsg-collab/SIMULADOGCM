@@ -18,6 +18,8 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  assert.equal((await a('/human-rights.js')).status,303);
  assert.equal((await a('/computing.js')).status,303);
  assert.equal((await a('/portuguese.js')).status,303);
+ assert.equal((await a('/api/version')).status,401);
+ assert.equal((await a('/updates.js')).status,303);
  assert.equal((await a('/portuguese/machado.webp')).status,303);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'wrong'})).status,401);
  assert.equal((await admin('/api/login',{mode:'admin',username:'admin-test',password:'test-password'})).status,200);
@@ -31,6 +33,9 @@ test('controle de acesso completo e vínculo exclusivo',async t=>{
  assert.equal((await good('/questions.js')).status,200);
  assert.equal((await good('/computing.js')).status,200);
  const cookiesBeforeMaterial={...good.jar};
+ const version=await good('/api/version');assert.equal(version.status,200);const release=(await version.json()).version;assert.match(release,/^[a-f0-9]{64}$/);
+ const homepage=await(await good('/')).text();assert.ok(homepage.includes(`name="gcm-release" content="${release}"`));assert.doesNotMatch(homepage,/data-view="material"/);
+ assert.equal((await good('/updates.js')).status,200);
  const portuguese=await good('/portuguese.js');assert.equal(portuguese.status,200);assert.match(await portuguese.text(),/const PORTUGUESE_MATERIAL/);
  const illustration=await good('/portuguese/machado.webp');assert.equal(illustration.status,200);assert.equal(illustration.headers.get('content-type'),'image/webp');
  assert.equal(Buffer.from(await illustration.arrayBuffer()).subarray(8,12).toString(),'WEBP');

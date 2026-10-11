@@ -1,10 +1,11 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
+const release=require('./release');
 const {digest,token,equal,passwordValid,deviceProof,restoreDevice}=require('./security');
 const validToken=v=>typeof v==='string' && /^[A-Za-z0-9_-]{43}$/.test(v);
 const ROOT=path.join(__dirname,'..','private');
 const MIME={'.webp':'image/webp','.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json; charset=utf-8'};
-const allowed=new Set(['index.html','app.js','questions.js','material.js','human-rights.js','computing.js','portuguese.js','style.css','favicon.svg','account.js','admin.js','access.css']);
+const allowed=new Set(['index.html','app.js','updates.js','questions.js','material.js','human-rights.js','computing.js','portuguese.js','style.css','favicon.svg','account.js','admin.js','access.css']);
 // Study illustrations use the same authenticated route as the question bank.
 ["advertencia.webp", "charge-lixo.webp", "hagar.webp", "inteligencias.webp", "leitura.webp", "limites-1.webp", "limites-2.webp", "limites-3.webp", "machado.webp", "noticia.webp", "tirinha-bbb.webp"].forEach(name=>allowed.add('portuguese/'+name));
 function fail(status,message){const e=new Error(message);e.status=status;throw e;}
@@ -36,7 +37,7 @@ function makeHandler(getDb,config=process.env){
     else {let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>8192)fail(413,'Solicitação muito grande.');}body=JSON.parse(raw||'{}');}
     if(!body || Array.isArray(body) || typeof body!=='object')fail(400,'Solicitação inválida.');
    }
-   const file=async name=>{res.statusCode=200;res.setHeader('Content-Type',MIME[path.extname(name)]||'text/plain');res.end(req.method==='HEAD'?undefined:await fs.readFile(path.join(ROOT,name)));};
+   const file=async name=>{res.statusCode=200;res.setHeader('Content-Type',MIME[path.extname(name)]||'text/plain');let body=req.method==='HEAD'?undefined:await fs.readFile(path.join(ROOT,name));if(name==='index.html'&&body)body=body.toString().replace('__GCM_RELEASE__',await release());res.end(body);};
    // Only installation metadata and icons are public; study content remains authenticated.
    if(['/manifest.webmanifest','/install.js','/sw.js'].includes(pathname)){
     if(!['GET','HEAD'].includes(req.method))return send(405,{error:'Método não permitido.'});
@@ -107,6 +108,7 @@ function makeHandler(getDb,config=process.env){
     if(pathname.startsWith('/api/'))return send(401,{error:'Entre para continuar.'});
     res.statusCode=303;res.setHeader('Location','/login');return res.end();
    }
+   if(pathname==='/api/version' && req.method==='GET')return send(200,{version:await release()});
    if(pathname==='/api/me' && req.method==='GET')return send(200,{role:who.role,name:who.role==='admin'?config.ADMIN_USERNAME:who.name,...(who.role==='student'?{deviceProof:deviceProof(device,who.access_key_hash,config.ADMIN_PASSWORD_HASH)}:{})});
    if(pathname==='/api/logout' && req.method==='POST'){
     await db.query('DELETE FROM gcm_sessions WHERE token_hash=$1',[who.token_hash]);
